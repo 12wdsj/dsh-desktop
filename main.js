@@ -8,9 +8,12 @@ const { autoUpdater } = require('electron-updater')
 const DSH_PORT = 3080
 const DSH_HOST = '127.0.0.1'
 const DSH_URL = `http://${DSH_HOST}:${DSH_PORT}`
+const PHYSMOL_PORT = 8931
+const PHYSMOL_DIR = 'D:\\AI\\PHYSMOL'
 
 let mainWindow = null
 let dshProcess = null
+let physmolProcess = null
 let tray = null
 
 // 检查端口是否被占用
@@ -60,7 +63,8 @@ async function startDshServer() {
 
   // 查找 dsh 命令
   const dshPaths = [
-    'dsh',  // 全局安装
+    'D:\\nodejs\\dsh.cmd',  // 本机 npm prefix
+    'dsh',  // PATH 中的全局安装
     path.join(process.env.APPDATA || '', 'npm', 'dsh.cmd'),  // Windows npm 全局
     path.join(process.env.LOCALAPPDATA || '', 'npm', 'dsh.cmd'),
   ]
@@ -270,12 +274,54 @@ function createTray() {
   })
 }
 
+// 启动 PHYSMOL 认知服务（端口 8931）
+async function startPhysmolServer() {
+  const portInUse = await isPortInUse(PHYSMOL_PORT)
+  if (portInUse) {
+    console.log(`端口 ${PHYSMOL_PORT} 已被占用，假设 PHYSMOL 已在运行`)
+    return true
+  }
+
+  physmolProcess = spawn('py', ['-3.10', 'physmol_server.py'], {
+    cwd: PHYSMOL_DIR,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+
+  physmolProcess.stdout.on('data', (d) => console.log(`[physmol] ${d.toString().trim()}`))
+  physmolProcess.stderr.on('data', (d) => console.error(`[physmol] ${d.toString().trim()}`))
+
+  physmolProcess.on('error', (err) => {
+    console.error('启动 PHYSMOL 失败:', err.message)
+  })
+
+  physmolProcess.on('close', (code) => {
+    console.log(`PHYSMOL 进程退出，代码: ${code}`)
+    physmolProcess = null
+  })
+
+  // PHYSMOL 初始化加载模型较慢，等 60 秒
+  try {
+    await waitForServer(`http://${DSH_HOST}:${PHYSMOL_PORT}/health`, 60000)
+    console.log('PHYSMOL 服务已就绪')
+    return true
+  } catch (err) {
+    console.error('PHYSMOL 启动超时，dsh 的 physmol 工具将不可用')
+    return true  // 不阻塞主流程，dsh 仍可用
+  }
+}
+
 // 停止 dsh 服务器
 function stopDshServer() {
   if (dshProcess) {
     console.log('正在停止 dsh 服务器...')
     dshProcess.kill()
     dshProcess = null
+  }
+  if (physmolProcess) {
+    console.log('正在停止 PHYSMOL 服务...')
+    physmolProcess.kill()
+    physmolProcess = null
   }
 }
 
@@ -397,6 +443,9 @@ app.whenReady().then(async () => {
 
   // 设置自动更新
   setupAutoUpdater()
+
+  // 启动 PHYSMOL 服务（并行，不阻塞）
+  startPhysmolServer()
 
   // 启动 dsh 服务器
   const serverReady = await startDshServer()
