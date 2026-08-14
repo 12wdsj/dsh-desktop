@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, Menu, Tray, nativeImage } = require('electron')
+const { app, BrowserWindow, shell, dialog, Menu, Tray, nativeImage, ipcMain, screen } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const net = require('net')
@@ -12,6 +12,7 @@ const PHYSMOL_PORT = 8931
 const PHYSMOL_DIR = 'D:\\AI\\PHYSMOL'
 
 let mainWindow = null
+let petWindow = null
 let dshProcess = null
 let physmolProcess = null
 let tray = null
@@ -229,6 +230,54 @@ function createWindow() {
   const menu = Menu.buildFromTemplate(menuTemplate)
   Menu.setApplicationMenu(menu)
 }
+
+// 创建桌面宠物窗口（透明置顶）
+function createPetWindow() {
+  const { workAreaSize } = screen.getPrimaryDisplay()
+
+  petWindow = new BrowserWindow({
+    width: 256,
+    height: 256,
+    x: workAreaSize.width - 300,
+    y: workAreaSize.height - 300,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  })
+
+  petWindow.setAlwaysOnTop(true, 'screen-saver')
+  petWindow.loadFile(path.join(__dirname, 'pet.html'))
+  petWindow.on('closed', () => { petWindow = null })
+}
+
+// 宠物说话
+function petSay(text) {
+  if (petWindow && !petWindow.isDestroyed()) {
+    petWindow.webContents.send('pet-say', text)
+  }
+}
+
+// 宠物 IPC
+ipcMain.on('pet-move', (_event, { dx, dy }) => {
+  if (!petWindow) return
+  const [x, y] = petWindow.getPosition()
+  petWindow.setPosition(x + dx, y + dy)
+})
+
+ipcMain.on('pet-open-main', () => {
+  if (mainWindow) {
+    mainWindow.show()
+    mainWindow.focus()
+  }
+})
 
 // 创建系统托盘
 function createTray() {
@@ -456,6 +505,10 @@ app.whenReady().then(async () => {
 
   // 创建窗口
   createWindow()
+
+  // 创建桌面宠物
+  createPetWindow()
+  setTimeout(() => petSay('今天也要加油哦！'), 15000)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
