@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "DeepSeek Harness Desktop - 蓝色小鲸鱼",
   "main": "main.js",
   "scripts": {
@@ -42,6 +42,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "pet.html",
       "assets/**/*",
       "package.json"
     ]
