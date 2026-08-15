@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, Menu, Tray, nativeImage, ipcMain, screen } = require('electron')
+const { app, BrowserWindow, shell, dialog, Menu, Tray, nativeImage, ipcMain, screen, session } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const net = require('net')
@@ -153,8 +153,8 @@ function createWindow() {
     backgroundColor: '#1e1e2e',
   })
 
-  // 加载 dsh web 界面
-  mainWindow.loadURL(DSH_URL)
+  // 加载 dsh web 界面（时间戳参数强制绕过缓存）
+  mainWindow.loadURL(DSH_URL + '?t=' + Date.now())
 
   // 外部链接在系统浏览器打开
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -487,6 +487,9 @@ app.on('before-quit', () => {
 
 // 应用生命周期
 app.whenReady().then(async () => {
+  // 每次启动清空渲染进程缓存，确保加载最新插件
+  await session.defaultSession.clearCache()
+  await session.defaultSession.clearStorageData({ storages: ['caches'] })
   // 创建托盘
   createTray()
 
