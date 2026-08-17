@@ -2,6 +2,7 @@ const { app, BrowserWindow, shell, dialog, Menu, Tray, nativeImage, ipcMain, scr
 const { spawn } = require('child_process')
 const path = require('path')
 const net = require('net')
+const http = require('http')
 const { autoUpdater } = require('electron-updater')
 
 // 配置
@@ -265,6 +266,58 @@ function petSay(text) {
   }
 }
 
+// pet-bridge HookServer：接收 dsh 会话状态推送（cc-pet 兼容协议，端口 7779）
+let hookServer = null
+
+function startPetHookServer() {
+  hookServer = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/bubble') {
+      let body = ''
+      req.on('data', (chunk) => {
+        body += chunk
+        if (body.length > 8192) req.destroy()
+      })
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body)
+          const text = payload.text || payload.message || payload.bubble || ''
+          if (text) {
+            console.log(`[pet-hook] ${text}`)
+            petSay(text)
+          }
+        } catch (e) {
+          console.error('[pet-hook] 解析失败:', e.message)
+        }
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ok: true }))
+      })
+      return
+    }
+    res.writeHead(404)
+    res.end()
+  })
+
+  hookServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log('端口 7779 已被占用，HookServer 跳过（可能已有 cc-pet 在运行）')
+    } else {
+      console.error('[pet-hook] 服务错误:', err.message)
+    }
+    hookServer = null
+  })
+
+  hookServer.listen(7779, '127.0.0.1', () => {
+    console.log('宠物状态桥已就绪: 127.0.0.1:7779')
+  })
+}
+
+function stopPetHookServer() {
+  if (hookServer) {
+    hookServer.close()
+    hookServer = null
+  }
+}
+
 // 宠物 IPC
 ipcMain.on('pet-move', (_event, { dx, dy }) => {
   if (!petWindow) return
@@ -372,6 +425,7 @@ function stopDshServer() {
     physmolProcess.kill()
     physmolProcess = null
   }
+  stopPetHookServer()
 }
 
 // ==================== 自动更新 ====================
@@ -512,6 +566,9 @@ app.whenReady().then(async () => {
   // 创建桌面宠物
   createPetWindow()
   setTimeout(() => petSay('今天也要加油哦！'), 15000)
+
+  // 启动宠物状态桥（接收 dsh pet-bridge 推送）
+  startPetHookServer()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
