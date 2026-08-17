@@ -269,6 +269,31 @@ function petSay(text) {
 // pet-bridge HookServer：接收 dsh 会话状态推送（cc-pet 兼容协议，端口 7779）
 let hookServer = null
 
+// 把 pet-bridge 的 kind 协议翻译成气泡文字
+function formatKind(payload) {
+  const kind = payload && payload.kind
+  if (!kind) return ''
+  switch (kind) {
+    case 'user':
+      return 'dsh · 思考中…'
+    case 'pre': {
+      const name = payload.tool_name || '工具'
+      const input = payload.tool_input
+      // tool_input 是精简摘要（文件名/命令首词），优先显示
+      const detail = input && typeof input === 'object'
+        ? (input.path || input.file || input.command || input.query || '')
+        : ''
+      return `dsh · ${name}${detail ? ' · ' + String(detail).slice(0, 24) : ''}…`
+    }
+    case 'post':
+      return 'dsh · 工具完成'
+    case 'stop':
+      return 'dsh · 完成 ✅'
+    default:
+      return `dsh · ${kind}`
+  }
+}
+
 function startPetHookServer() {
   hookServer = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/bubble') {
@@ -280,7 +305,8 @@ function startPetHookServer() {
       req.on('end', () => {
         try {
           const payload = JSON.parse(body)
-          const text = payload.text || payload.message || payload.bubble || ''
+          // 兼容两种协议：cc-pet 的 kind 协议 + 简单 text 协议
+          const text = payload.text || payload.message || formatKind(payload)
           if (text) {
             console.log(`[pet-hook] ${text}`)
             petSay(text)
